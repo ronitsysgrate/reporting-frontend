@@ -1,8 +1,8 @@
 'use client'
 import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { AlignJustify, Download, Filter, RefreshCcw } from 'lucide-react';
-// import * as XLSX from 'xlsx';
-// import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 
 interface VisibleColumnType {
   [key: string]: boolean;
@@ -48,16 +48,16 @@ const ReportHeader: React.FC<ReportProps> = ({ title, startDate, endDate, report
             return;
         }
 
-        // const worksheet = XLSX.utils.json_to_sheet(reportData);
-        // const workbook = XLSX.utils.book_new();
-        // XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
+        const worksheet = XLSX.utils.json_to_sheet(reportData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
 
-        // const colWidths = Object.keys(reportData[0] || {}).map((key) => ({
-        //     wch: Math.max(key.length, ...reportData.map((row: any) => String(row[key]).length))
-        // }));
-        // worksheet['!cols'] = colWidths;
+        const colWidths = Object.keys(reportData[0] || {}).map((key) => ({
+            wch: Math.max(key.length, ...reportData.map((row: any) => String(row[key]).length))
+        }));
+        worksheet['!cols'] = colWidths;
 
-        // XLSX.writeFile(workbook, `${title.replace(/\s+/g, '_')}.xlsx`, { bookType: 'xlsx', type: 'binary' });
+        XLSX.writeFile(workbook, `${title.replace(/\s+/g, '_')}.xlsx`, { bookType: 'xlsx', type: 'binary' });
     };
 
     const downloadCSV = () => {
@@ -66,14 +66,14 @@ const ReportHeader: React.FC<ReportProps> = ({ title, startDate, endDate, report
             return;
         }
 
-        // const csv = Papa.unparse(reportData);
-        // const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        // const link = document.createElement('a');
-        // const url = URL.createObjectURL(blob);
-        // link.setAttribute('href', url);
-        // link.setAttribute('download', `${title.replace(/\s+/g, '_')}.csv`);
-        // link.click();
-        // URL.revokeObjectURL(url);
+        const csv = Papa.unparse(reportData);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${title.replace(/\s+/g, '_')}.csv`);
+        link.click();
+        URL.revokeObjectURL(url);
     };
 
     return (
