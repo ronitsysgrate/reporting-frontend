@@ -13,8 +13,11 @@ RUN npm ci
 # Copy the rest of the application code
 COPY . .
 
-# Expose the backend port
-EXPOSE 8080
+# Build the Next.js app
+RUN npm run build
 
-# Start the Express server
+# Expose the port the app runs on
+EXPOSE 8000
+
+# Start the Next.js app
 CMD ["npm", "start"]
