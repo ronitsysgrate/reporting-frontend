@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "axios": "^1.13.2",
-    "baseline-browser-mapping": "^2.8.32",
     "lucide-react": "^0.554.0",
     "next": "16.0.3",
     "papaparse": "^5.5.3",
@@ -25,6 +24,7 @@
     "@types/papaparse": "^5.5.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "baseline-browser-mapping": "^2.9.7",
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
     "tailwindcss": "^4",
