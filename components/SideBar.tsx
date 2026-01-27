@@ -36,6 +36,7 @@ const SideBar = () => {
             children: [
                 { id: 'login-logout', icon: <UserRound size={16} />, label: 'Login Logout Report', hasChildren: false, href: '/reports/login-logout' },
                 { id: 'agent-aux', icon: <UserRound size={16} />, label: 'Agent Aux Report', hasChildren: false, href: '/reports/agent-aux' },
+                { id: 'summary', icon: <UserRound size={16} />, label: 'Summary Report', hasChildren: false, href: '/reports/summary' },
             ],
         },
         {

@@ -53,6 +53,16 @@ const PermissionTree: React.FC<PermissionTreeProps> = ({ selectedPermissions, on
                                 />
                                 <label className="text-sm font-medium text-gray-700">Agent Aux Reports</label>
                             </div>
+                            <div className="flex items-center cursor-pointer py-1">
+                                <input
+                                    type="checkbox"
+                                    className="mr-2"
+                                    onChange={() => togglePermission('summary')}
+                                    onClick={(e) => e.stopPropagation()}
+                                    checked={selectedPermissions.includes('summary')}
+                                />
+                                <label className="text-sm font-medium text-gray-700">Summary Reports</label>
+                            </div>
                         </div>
                     </div>
                 )}

@@ -7,13 +7,23 @@ const MultiSelectDropdown: React.FC<{
     onChange: (selected: string[]) => void;
     placeholder: string;
 }> = ({ options, selected, onChange, placeholder }) => {
+
     const [isOpen, setIsOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (isOpen && searchInputRef.current) {
+            searchInputRef.current.focus();
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
                 setIsOpen(false);
+                setSearchTerm("");
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -27,6 +37,10 @@ const MultiSelectDropdown: React.FC<{
         onChange(newSelected);
     };
 
+    const filteredOptions = options.filter(option =>
+        option.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
     return (
         <div className="relative w-40" ref={dropdownRef}>
             <button
@@ -37,21 +51,43 @@ const MultiSelectDropdown: React.FC<{
                 <ChevronDown size={16} />
             </button>
             {isOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
-                    {options.map((option) => (
-                        <label
-                            key={option}
-                            className="flex items-center px-3 py-2 hover:bg-gray-100 cursor-pointer"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={selected.includes(option)}
-                                onChange={() => toggleOption(option)}
-                                className="mr-2"
-                            />
-                            <span className="text-sm">{option}</span>
-                        </label>
-                    ))}
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg flex flex-col">
+                    {/* Search Input */}
+                    <div className="p-2 border-b border-gray-200">
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            placeholder="Search..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    {/* Options List */}
+                    <div className="max-h-60 overflow-auto">
+                        {filteredOptions.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                                No options found
+                            </div>
+                        ) : (
+                            filteredOptions.map((option) => (
+                                <label
+                                    key={option}
+                                    className="flex items-center px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={selected.includes(option)}
+                                        onChange={() => toggleOption(option)}
+                                        className="mr-2"
+                                    />
+                                    <span className="text-sm truncate">{option}</span>
+                                </label>
+                            ))
+                        )}
+                    </div>
                 </div>
             )}
         </div>

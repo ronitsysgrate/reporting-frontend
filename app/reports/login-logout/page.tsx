@@ -3,11 +3,13 @@
 import MultiSelectDropdown from '@/components/MultiSelectDropdown';
 import ReportHeader from '@/components/ReportHeader'
 import { Headers } from '@/services/commonAPI';
-import { fetchAgentLoginReportAPI } from '@/services/reportsAPI';
+import { fetchAgentLoginCountAPI, fetchAgentLoginReportAPI } from '@/services/reportsAPI';
+import server_url from '@/services/serverURL';
 import { formatDate, formatDateTime, formatDuration } from '@/utils/dateFormat';
 import { useDateRange } from '@/utils/useDaterange';
-import { Clock, Filter, User, Users } from 'lucide-react';
+import { Clock, Download, Filter, User, Users } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react'
+import toast from 'react-hot-toast';
 
 interface Pagination {
     total: number;
@@ -35,7 +37,7 @@ interface AgentLoginReport {
 const Page = () => {
 
     const { today, pastDate } = useDateRange();
-    const [startDate, setStartDate] = useState<string>(pastDate || '2025-07-01');
+    const [startDate, setStartDate] = useState<string>(today || '2025-07-01');
     const [endDate, setEndDate] = useState<string>(today || '2025-07-30');
     const [data, setData] = useState<AgentLoginReport[]>([]);
     const [allAgents, setAllAgents] = useState<string[]>([]);
@@ -43,6 +45,12 @@ const Page = () => {
     const [selectedFormat, setSelectedFormat] = useState<'ASC' | 'DESC'>('DESC');
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [token, setToken] = useState<string | null>(null);
+    const [exportProgress, setExportProgress] = useState<number | null>();
+    const [isExporting, setIsExporting] = useState(false);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [pendingDownloadType, setPendingDownloadType] = useState<'excel' | 'csv' | null>(null);
+    const [loginRecordCount, setLoginRecordCount] = useState<number | null>(null);
+    const [isFetchingCount, setIsFetchingCount] = useState(false);
 
     const [pagination, setPagination] = useState<Pagination>({
         total: 0,
@@ -173,6 +181,125 @@ const Page = () => {
         }
     };
 
+    const confirmAndDownload = async () => {
+        if (!pendingDownloadType || !token) return;
+
+        setShowConfirmModal(false);
+        setIsExporting(true);
+        setExportProgress(0);
+
+        try {
+            const params = new URLSearchParams();
+            params.append('from', `${endDate}T00:00:00Z`);
+            params.append('to', `${endDate}T23:59:59Z`);
+            params.append('format', selectedFormat);
+            params.append('type', pendingDownloadType);
+
+            selectedAgents.forEach(agent => agent.trim() && params.append('agents', agent.trim()));
+
+            const url = `${server_url}/download/login?${params.toString()}`;
+
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': pendingDownloadType === 'csv'
+                        ? 'text/csv'
+                        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.statusText}`);
+            }
+
+            const total = response.headers.get('Content-Length')
+                ? parseInt(response.headers.get('Content-Length')!, 10)
+                : null;
+
+            const reader = response.body!.getReader();
+            const chunks: BlobPart[] = [];
+            let loaded = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value!);
+                loaded += value?.length || 0;
+
+                if (total) {
+                    const percentage = Math.round((loaded / total) * 100);
+                    setExportProgress(percentage);
+                }
+            }
+
+            const blob = new Blob(chunks, {
+                type: pendingDownloadType === 'csv'
+                    ? 'text/csv'
+                    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = pendingDownloadType === 'csv'
+                ? `Login_${endDate}.csv`
+                : `Login_${endDate}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(downloadUrl);
+
+            setExportProgress(100);
+            setTimeout(() => {
+                setExportProgress(null);
+                setIsExporting(false);
+            }, 800);
+
+        } catch (error) {
+            console.error('Export failed:', error);
+            toast.error('Failed to export file. Please try again.');
+            setExportProgress(null);
+            setIsExporting(false);
+        } finally {
+            setPendingDownloadType(null);
+        }
+    };
+
+    const fetchLoginRecordCount = async (downloadType: 'excel' | 'csv' = 'excel') => {
+        if (!token) return;
+
+        setIsFetchingCount(true);
+        setShowConfirmModal(true);
+        setLoginRecordCount(null);
+
+        try {
+            const params = new URLSearchParams();
+            params.append('to', endDate);
+
+            selectedAgents.forEach(agent => {
+                if (agent.trim()) params.append('agents', agent.trim());
+            });
+
+            const result = await fetchAgentLoginCountAPI(params.toString(), { authorization: `Bearer ${token}` });
+
+            if (result.success && result.data?.totalRecords !== undefined) {
+                setLoginRecordCount(result.data.totalRecords);
+            } else {
+                setLoginRecordCount(0);
+                toast.error('Could not fetch record count');
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error('Error fetching record count');
+            setLoginRecordCount(0);
+        } finally {
+            setIsFetchingCount(false);
+        }
+
+        setPendingDownloadType(downloadType);
+    };
+
     useEffect(() => {
         const storedToken = sessionStorage.getItem('tk');
         if (storedToken) {
@@ -192,14 +319,14 @@ const Page = () => {
                 title="Agent Login-Logout Report"
                 startDate={startDate}
                 endDate={endDate}
-                reportData={data}
                 visibleColumns={visibleColumns}
                 setStartDate={setStartDate}
                 setEndDate={setEndDate}
                 fetchReports={fetchLoginLogoutReports}
                 refreshReports={handleRefresh}
                 setVisibleColumns={setVisibleColumns}
-            >
+                onExcelDownload={fetchLoginRecordCount}
+                onCSVDownload={() => fetchLoginRecordCount('csv')}            >
                 <div className="flex space-x-4">
                     <MultiSelectDropdown
                         options={allAgents}
@@ -361,6 +488,7 @@ const Page = () => {
                                     <option value="10">10</option>
                                     <option value="20">20</option>
                                     <option value="50">50</option>
+                                    <option value="100">100</option>
                                 </select>
                                 <span>records per page</span>
                             </div>
@@ -393,6 +521,106 @@ const Page = () => {
                     </div>
                 </div>
             </div>
+            {isExporting && (
+                <div className="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full">
+                        {/* Icon */}
+                        <div className="flex justify-center mb-6">
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 ${exportProgress === 100
+                                ? 'bg-green-100'
+                                : 'bg-blue-100'
+                                }`}>
+                                {exportProgress === 100 ? (
+                                    <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                ) : (
+                                    <Download className="w-8 h-8 text-blue-600 animate-bounce" />
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Title */}
+                        <h3 className="text-center text-lg font-semibold text-gray-800 mb-2">
+                            {exportProgress === 100 ? 'Export Complete!' : 'Exporting Data...'}
+                        </h3>
+
+                        {/* Subtitle */}
+                        <p className="text-center text-sm text-gray-500 mb-6">
+                            {exportProgress === 100
+                                ? 'Your file has been downloaded successfully'
+                                : 'Please wait while we prepare your file'}
+                        </p>
+
+                        {/* Progress Bar Container */}
+                        <div className="relative">
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                <div
+                                    className={`h-full transition-all duration-300 ease-out rounded-full ${exportProgress === 100
+                                        ? 'bg-linear-to-r from-green-500 to-green-600'
+                                        : 'bg-linear-to-r from-blue-500 to-blue-600'
+                                        }`}
+                                    style={{ width: exportProgress !== null ? `${exportProgress}%` : '0%' }}
+                                />
+                            </div>
+
+                            {/* Progress Percentage */}
+                            <div className="mt-3 flex items-center justify-between text-sm">
+                                <span className="text-gray-600 font-medium">
+                                    {exportProgress !== null ? `${exportProgress}%` : '0%'}
+                                </span>
+                                {exportProgress !== 100 && (
+                                    <span className="text-gray-400 flex gap-1">
+                                        <span className="animate-pulse">.</span>
+                                        <span className="animate-pulse" style={{ animationDelay: '0.2s' }}>.</span>
+                                        <span className="animate-pulse" style={{ animationDelay: '0.4s' }}>.</span>
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {showConfirmModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                            Confirm Download
+                        </h3>
+
+                        {isFetchingCount ? (
+                            <p className="text-gray-600 mb-6">Fetching record count...</p>
+                        ) : (
+                            <p className="text-gray-600 mb-6">
+                                Proceed to download <strong>{loginRecordCount?.toLocaleString() ?? '—'}</strong> records
+                                for <strong>{formatDate(endDate)}</strong>?
+                            </p>
+                        )}
+
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowConfirmModal(false);
+                                    setPendingDownloadType(null);
+                                    setLoginRecordCount(null);
+                                }}
+                                disabled={isFetchingCount}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+
+                            <button
+                                onClick={confirmAndDownload}
+                                disabled={isFetchingCount || loginRecordCount === null || loginRecordCount === 0}
+                                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition disabled:opacity-50"
+                            >
+                                {isFetchingCount ? 'Loading...' : 'Download Now'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     )
 }

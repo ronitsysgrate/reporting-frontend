@@ -3,7 +3,7 @@
 import MultiSelectDropdown from '@/components/MultiSelectDropdown';
 import ReportHeader from '@/components/ReportHeader'
 import { Headers } from '@/services/commonAPI';
-import { fetchAgentAuxCountAPI, fetchAgentAuxReportAPI } from '@/services/reportsAPI';
+import { fetchSummaryReportAPI } from '@/services/reportsAPI';
 import server_url from '@/services/serverURL';
 import { formatDate, formatDateTime, formatDuration } from '@/utils/dateFormat';
 import { useDateRange } from '@/utils/useDaterange';
@@ -28,14 +28,13 @@ interface SummaryMetric {
 interface AgentAuxReport {
     user_name: string,
     user_id: string,
-    user_status: string,
     user_sub_status: string,
-    end_time_tz: string,
-    duration: string,
-    start_time_tz: string,
+    total_duration: string,
+    average_duration: string,
     date: string,
 }
-const allSubstatus = [
+
+const allStatus = [
     'Coaching',
     'Extended ACW - Admin',
     'Forced',
@@ -51,18 +50,15 @@ const allSubstatus = [
     'Wrapping up'
 ];
 
-const allStatus = ['Not Ready', 'Occupied', 'Offline', 'Ready']
-
 const Page = () => {
 
-    const { today } = useDateRange();
-    const [startDate, setStartDate] = useState<string>(today || '2025-07-01');
+    const { today, pastDate } = useDateRange();
+    const [startDate, setStartDate] = useState<string>(pastDate || '2025-07-01');
     const [endDate, setEndDate] = useState<string>(today || '2025-07-30');
     const [data, setData] = useState<AgentAuxReport[]>([]);
     const [allAgents, setAllAgents] = useState<string[]>([]);
     const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-    const [selectedSubtatuses, setSelectedSubtatuses] = useState<string[]>([]);
     const [selectedFormat, setSelectedFormat] = useState<'ASC' | 'DESC'>('DESC');
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [token, setToken] = useState<string | null>(null);
@@ -70,8 +66,6 @@ const Page = () => {
     const [isExporting, setIsExporting] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [pendingDownloadType, setPendingDownloadType] = useState<'excel' | 'csv' | null>(null);
-    const [auxRecordCount, setAuxRecordCount] = useState<number | null>(null);
-    const [isFetchingCount, setIsFetchingCount] = useState(false);
 
     const [pagination, setPagination] = useState<Pagination>({
         total: 0,
@@ -82,14 +76,12 @@ const Page = () => {
 
     const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
         index: true,
-        user_name: true,
-        user_id: false,
-        user_status: true,
-        user_sub_status: true,
-        end_time_tz: true,
-        duration: true,
-        start_time_tz: true,
         date: true,
+        name: true,
+        id: false,
+        status: true,
+        totalDuration: true,
+        avgDuration: true,
     });
 
     const queryParams = useMemo(() => {
@@ -112,22 +104,16 @@ const Page = () => {
 
         selectedStatuses.forEach(status => {
             if (status.trim()) {
-                params.append('statuses', status.trim());
-            }
-        });
-
-        selectedSubtatuses.forEach(status => {
-            if (status.trim()) {
-                params.append('sub_status', status.trim());
+                params.append('substatuses', status.trim());
             }
         });
 
         return params.toString();
-    }, [pagination.currentPage, pagination.limit, selectedFormat, startDate, endDate, selectedAgents, selectedStatuses, selectedSubtatuses]);
+    }, [pagination.currentPage, pagination.limit, selectedFormat, startDate, endDate, selectedAgents, selectedStatuses]);
 
     const summaryMetrics = useMemo<SummaryMetric[]>(() => {
         const totalLogins = pagination.total;
-        const totalDuration = data.reduce((sum, report) => sum + (Number(report.duration) || 0), 0);
+        const totalDuration = data.reduce((sum, report) => sum + (Number(report.total_duration) || 0), 0);
         const avgDuration = data.length > 0 ? totalDuration / data.length : '00:00:00';
         const uniqueAgents = new Set(data.map(report => report.user_name)).size;
 
@@ -143,7 +129,7 @@ const Page = () => {
 
         try {
             const headers: Headers = { authorization: `Bearer ${token}` };
-            const result = await fetchAgentAuxReportAPI(queryParams, headers);
+            const result = await fetchSummaryReportAPI(queryParams, headers);
             if (result.success) {
                 const { records, agents, page, limit, total } = result.data;
                 setData(records);
@@ -189,14 +175,10 @@ const Page = () => {
             });
 
             selectedStatuses.forEach(status => {
-                if (status.trim()) params.append('statuses', status.trim());
+                if (status.trim()) params.append('substatuses', status.trim());
             });
 
-            selectedSubtatuses.forEach(status => {
-                if (status.trim()) params.append('sub_status', status.trim());
-            });
-
-            const result = await fetchAgentAuxReportAPI(params.toString(), headers);
+            const result = await fetchSummaryReportAPI(params.toString(), headers);
             if (result.success) {
                 const { records, agents, page, limit, total } = result.data;
                 setData(records);
@@ -225,30 +207,39 @@ const Page = () => {
         }
     };
 
+    const handleDownload = (type: 'excel' | 'csv' = 'excel') => {
+        setPendingDownloadType(type);
+        setShowConfirmModal(true);
+    };
+
     const confirmAndDownload = async () => {
-        if (!pendingDownloadType || !token) return;
+        if (!pendingDownloadType) return;
 
         setShowConfirmModal(false);
         setIsExporting(true);
         setExportProgress(0);
 
         try {
+            const storedToken = sessionStorage.getItem('tk');
+            if (!storedToken) {
+                throw new Error('No authentication token found');
+            }
+
             const params = new URLSearchParams();
-            params.append('from', `${endDate}T00:00:00Z`);
+            params.append('from', `${startDate}T00:00:00Z`);
             params.append('to', `${endDate}T23:59:59Z`);
             params.append('format', selectedFormat);
             params.append('type', pendingDownloadType);
 
             selectedAgents.forEach(agent => agent.trim() && params.append('agents', agent.trim()));
-            selectedStatuses.forEach(s => s.trim() && params.append('statuses', s.trim()));
-            selectedSubtatuses.forEach(s => s.trim() && params.append('sub_status', s.trim()));
+            selectedStatuses.forEach(status => status.trim() && params.append('substatuses', status.trim()));
 
-            const url = `${server_url}/download/aux?${params.toString()}`;
+            const url = `${server_url}/download/summary?${params.toString()}`;
 
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${token}`,
+                    'Authorization': `Bearer ${storedToken}`,
                     'Accept': pendingDownloadType === 'csv'
                         ? 'text/csv'
                         : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -259,10 +250,7 @@ const Page = () => {
                 throw new Error(`Download failed: ${response.statusText}`);
             }
 
-            const total = response.headers.get('Content-Length')
-                ? parseInt(response.headers.get('Content-Length')!, 10)
-                : null;
-
+            const total = response.headers.get('Content-Length') ? parseInt(response.headers.get('Content-Length')!, 10) : null;
             const reader = response.body!.getReader();
             const chunks: BlobPart[] = [];
             let loaded = 0;
@@ -270,8 +258,9 @@ const Page = () => {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
+
                 chunks.push(value);
-                loaded += value?.length || 0;
+                loaded += value.length;
 
                 if (total) {
                     const percentage = Math.round((loaded / total) * 100);
@@ -289,8 +278,8 @@ const Page = () => {
             const a = document.createElement('a');
             a.href = downloadUrl;
             a.download = pendingDownloadType === 'csv'
-                ? `Aux_${endDate}.csv`
-                : `Aux_${endDate}.xlsx`;
+                ? `Agent_Summary_${startDate}_to_${endDate}.csv`
+                : `Agent_Summary_${startDate}_to_${endDate}.xlsx`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -304,53 +293,10 @@ const Page = () => {
 
         } catch (error) {
             console.error('Export failed:', error);
-            toast.error('Failed to export file. Please try again.');
+            toast.error('Failed to export Excel. Please try again.');
             setExportProgress(null);
             setIsExporting(false);
-        } finally {
-            setPendingDownloadType(null);
         }
-    };
-
-    const fetchAuxRecordCount = async (downloadType: 'excel' | 'csv' = 'excel') => {
-        if (!token) return;
-
-        setIsFetchingCount(true);
-        setShowConfirmModal(true);
-        setAuxRecordCount(null);
-
-        try {
-            const params = new URLSearchParams();
-            params.append('to', endDate); // only to date is used
-
-            selectedAgents.forEach(agent => {
-                if (agent.trim()) params.append('agents', agent.trim());
-            });
-
-            // Note: your count API doesn't seem to support statuses/substatuses yet
-            // If backend supports it → add them here too
-            // selectedStatuses.forEach(s => s.trim() && params.append('statuses', s.trim()));
-            // selectedSubtatuses.forEach(s => s.trim() && params.append('sub_status', s.trim()));
-
-            const headers: Headers = { authorization: `Bearer ${token}` };
-
-            const result = await fetchAgentAuxCountAPI(params.toString(), headers);
-
-            if (result.success && result.data?.totalRecords != null) {
-                setAuxRecordCount(result.data.totalRecords);
-            } else {
-                setAuxRecordCount(0);
-                toast.error('Could not fetch record count');
-            }
-
-        } catch (err) {
-            console.error(err);
-            toast.error('Failed to get record count');
-            setAuxRecordCount(0);
-        } finally {
-            setIsFetchingCount(false);
-        }
-        setPendingDownloadType(downloadType);
     };
 
     useEffect(() => {
@@ -369,7 +315,7 @@ const Page = () => {
     return (
         <>
             <ReportHeader
-                title="Agent Aux Report"
+                title="Summary Report"
                 startDate={startDate}
                 endDate={endDate}
                 visibleColumns={visibleColumns}
@@ -378,9 +324,17 @@ const Page = () => {
                 fetchReports={fetchAuxReports}
                 refreshReports={handleRefresh}
                 setVisibleColumns={setVisibleColumns}
-                onExcelDownload={fetchAuxRecordCount}
-                onCSVDownload={() => fetchAuxRecordCount('csv')}            >
+                onExcelDownload={handleDownload}
+                onCSVDownload={() => handleDownload('csv')}
+                refresh={false}
+            >
                 <div className="flex space-x-4">
+                    <MultiSelectDropdown
+                        options={allAgents}
+                        selected={selectedAgents}
+                        onChange={setSelectedAgents}
+                        placeholder="All Agents"
+                    />
                     <select
                         className="border border-gray-300 rounded-md py-1.5 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 w-40"
                         value={selectedFormat}
@@ -390,22 +344,10 @@ const Page = () => {
                         <option value="ASC">Oldest First</option>
                     </select>
                     <MultiSelectDropdown
-                        options={allAgents}
-                        selected={selectedAgents}
-                        onChange={setSelectedAgents}
-                        placeholder="All Agents"
-                    />
-                    <MultiSelectDropdown
                         options={allStatus}
                         selected={selectedStatuses}
                         onChange={setSelectedStatuses}
                         placeholder="All Statuses"
-                    />
-                    <MultiSelectDropdown
-                        options={allSubstatus}
-                        selected={selectedSubtatuses}
-                        onChange={setSelectedSubtatuses}
-                        placeholder="All Sub Statuses"
                     />
                 </div>
             </ReportHeader>
@@ -460,29 +402,23 @@ const Page = () => {
                                         {visibleColumns.index && (
                                             <th className="px-3 py-2 text-left text-gray-500 font-medium">#</th>
                                         )}
-                                        {visibleColumns.user_name && (
-                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Name</th>
-                                        )}
-                                        {visibleColumns.user_id && (
-                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">ID</th>
-                                        )}
-                                        {visibleColumns.user_status && (
-                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Status</th>
-                                        )}
-                                        {visibleColumns.user_sub_status && (
-                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Sub Status</th>
-                                        )}
-                                        {visibleColumns.start_time_tz && (
-                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Start Time</th>
-                                        )}
-                                        {visibleColumns.end_time_tz && (
-                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">End Time</th>
-                                        )}
-                                        {visibleColumns.duration && (
-                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Duration</th>
-                                        )}
                                         {visibleColumns.date && (
                                             <th className="px-3 py-2 text-left text-gray-500 font-medium">Date</th>
+                                        )}
+                                        {visibleColumns.name && (
+                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Name</th>
+                                        )}
+                                        {visibleColumns.id && (
+                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">ID</th>
+                                        )}
+                                        {visibleColumns.status && (
+                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Status</th>
+                                        )}
+                                        {visibleColumns.totalDuration && (
+                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Total Duration</th>
+                                        )}
+                                        {visibleColumns.avgDuration && (
+                                            <th className="px-3 py-2 text-left text-gray-500 font-medium">Avg Duration</th>
                                         )}
                                     </tr>
                                 </thead>
@@ -504,44 +440,34 @@ const Page = () => {
                                                         {(pagination.currentPage - 1) * pagination.limit + index + 1}
                                                     </td>
                                                 )}
-                                                {visibleColumns.user_name && (
+                                                {visibleColumns.date && (
+                                                    <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
+                                                        {formatDate(report.date)}
+                                                    </td>
+                                                )}
+                                                {visibleColumns.name && (
                                                     <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
                                                         {report.user_name || '-'}
                                                     </td>
                                                 )}
-                                                {visibleColumns.user_id && (
+                                                {visibleColumns.id && (
                                                     <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
                                                         {report.user_id || '-'}
                                                     </td>
                                                 )}
-                                                {visibleColumns.user_status && (
-                                                    <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
-                                                        {report.user_status || '-'}
-                                                    </td>
-                                                )}
-                                                {visibleColumns.user_sub_status && (
+                                                {visibleColumns.status && (
                                                     <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
                                                         {report.user_sub_status || '-'}
                                                     </td>
                                                 )}
-                                                {visibleColumns.start_time_tz && (
+                                                {visibleColumns.totalDuration && (
                                                     <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
-                                                        {formatDateTime(report.start_time_tz)}
+                                                        {formatDuration(report.total_duration)}
                                                     </td>
                                                 )}
-                                                {visibleColumns.end_time_tz && (
+                                                {visibleColumns.avgDuration && (
                                                     <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
-                                                        {formatDateTime(report.end_time_tz)}
-                                                    </td>
-                                                )}
-                                                {visibleColumns.duration && (
-                                                    <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
-                                                        {formatDuration(report.duration)}
-                                                    </td>
-                                                )}
-                                                {visibleColumns.date && (
-                                                    <td className="px-3 py-1.5 whitespace-nowrap text-sm text-gray-900">
-                                                        {formatDate(report.date)}
+                                                        {formatDuration(report.average_duration)}
                                                     </td>
                                                 )}
                                             </tr>
@@ -607,6 +533,40 @@ const Page = () => {
                     </div>
                 </div>
             </div>
+
+            {showConfirmModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                            Confirm Download
+                        </h3>
+
+                        <p className="text-gray-600 mb-6">
+                            Proceed to download <strong>{pagination.total.toLocaleString()}</strong> records
+                            from <strong>{formatDate(startDate)}</strong> to <strong>{formatDate(endDate)}</strong>?
+                        </p>
+
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowConfirmModal(false);
+                                    setPendingDownloadType(null);
+                                }}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmAndDownload}
+                                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition"
+                            >
+                                Download Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isExporting && (
                 <div className="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full">
@@ -663,46 +623,6 @@ const Page = () => {
                                     </span>
                                 )}
                             </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {showConfirmModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                            Confirm Download
-                        </h3>
-
-                        {isFetchingCount ? (
-                            <p className="text-gray-600 mb-6">Fetching record count...</p>
-                        ) : (
-                            <p className="text-gray-600 mb-6">
-                                Proceed to download <strong>{auxRecordCount?.toLocaleString() ?? '—'}</strong> records
-                                for <strong>{formatDate(endDate)}</strong>?
-                            </p>
-                        )}
-
-                        <div className="flex justify-end gap-3">
-                            <button
-                                onClick={() => {
-                                    setShowConfirmModal(false);
-                                    setPendingDownloadType(null);
-                                    setAuxRecordCount(null);
-                                }}
-                                disabled={isFetchingCount}
-                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition disabled:opacity-50"
-                            >
-                                Cancel
-                            </button>
-
-                            <button
-                                onClick={confirmAndDownload}
-                                disabled={isFetchingCount || auxRecordCount === null || auxRecordCount === 0}
-                                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition disabled:opacity-50"
-                            >
-                                {isFetchingCount ? 'Loading...' : 'Download Now'}
-                            </button>
                         </div>
                     </div>
                 </div>

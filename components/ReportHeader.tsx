@@ -1,28 +1,28 @@
 'use client'
 import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { AlignJustify, Download, Filter, RefreshCcw } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import Papa from 'papaparse';
 
 interface VisibleColumnType {
-  [key: string]: boolean;
+    [key: string]: boolean;
 }
 
 interface ReportProps {
     title: string;
     startDate: string;
     endDate: string;
-    reportData: any | null;
     visibleColumns: VisibleColumnType;
+    refresh?: boolean;
     setStartDate: (date: string) => void;
     setEndDate: (date: string) => void;
     setVisibleColumns: React.Dispatch<React.SetStateAction<VisibleColumnType>>;
     fetchReports: () => void;
     refreshReports: () => void;
+    onExcelDownload: () => void;
+    onCSVDownload: () => void;
     children: ReactNode;
 }
 
-const ReportHeader: React.FC<ReportProps> = ({ title, startDate, endDate, reportData, visibleColumns, setStartDate, setEndDate, fetchReports, refreshReports, setVisibleColumns, children }) => {
+const ReportHeader: React.FC<ReportProps> = ({ title, startDate, endDate, visibleColumns, refresh = true, setStartDate, setEndDate, fetchReports, refreshReports, setVisibleColumns, onExcelDownload, onCSVDownload, children }) => {
     const [showColumnMenu, setShowColumnMenu] = useState<boolean>(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -42,50 +42,16 @@ const ReportHeader: React.FC<ReportProps> = ({ title, startDate, endDate, report
         };
     }, [showColumnMenu]);
 
-    const downloadExcel = () => {
-        if (!reportData || reportData.length === 0) {
-            console.error('No data available for export');
-            return;
-        }
-
-        const worksheet = XLSX.utils.json_to_sheet(reportData);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
-
-        const colWidths = Object.keys(reportData[0] || {}).map((key) => ({
-            wch: Math.max(key.length, ...reportData.map((row: any) => String(row[key]).length))
-        }));
-        worksheet['!cols'] = colWidths;
-
-        XLSX.writeFile(workbook, `${title.replace(/\s+/g, '_')}.xlsx`, { bookType: 'xlsx', type: 'binary' });
-    };
-
-    const downloadCSV = () => {
-        if (!reportData || reportData.length === 0) {
-            console.error('No data available for export');
-            return;
-        }
-
-        const csv = Papa.unparse(reportData);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', `${title.replace(/\s+/g, '_')}.csv`);
-        link.click();
-        URL.revokeObjectURL(url);
-    };
-
     return (
         <>
             {/* title & download buttons */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <h2 className="text-xl font-bold text-blue-800">{title}</h2>
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={downloadExcel} className="px-3 py-1.5 bg-blue-700 text-white text-sm rounded-md hover:bg-blue-600 flex items-center border border-blue-600 shadow-sm">
+                    <button onClick={onExcelDownload} className="px-3 py-1.5 bg-blue-700 text-white text-sm rounded-md hover:bg-blue-600 flex items-center border border-blue-600 shadow-sm">
                         <Download size={16} className="mr-2" />Excel
                     </button>
-                    <button onClick={downloadCSV} className="px-3 py-1.5 bg-blue-700 text-white text-sm rounded-md hover:bg-blue-600 flex items-center border border-blue-600 shadow-sm">
+                    <button onClick={onCSVDownload} className="px-3 py-1.5 bg-blue-700 text-white text-sm rounded-md hover:bg-blue-600 flex items-center border border-blue-600 shadow-sm">
                         <Download size={16} className="mr-2" />CSV
                     </button>
                     <div className="relative" ref={menuRef}>
@@ -119,11 +85,14 @@ const ReportHeader: React.FC<ReportProps> = ({ title, startDate, endDate, report
                             </div>
                         )}
                     </div>
-                    <button className="px-3 py-1.5 bg-blue-700 text-white text-sm rounded-md hover:bg-blue-600 flex items-center border border-blue-600 shadow-sm"
-                        onClick={refreshReports}
-                    >
-                        <RefreshCcw size={16} className="mr-2" />Refresh
-                    </button>
+                    {
+                        refresh &&
+                        <button className="px-3 py-1.5 bg-blue-700 text-white text-sm rounded-md hover:bg-blue-600 flex items-center border border-blue-600 shadow-sm"
+                            onClick={refreshReports}
+                        >
+                            <RefreshCcw size={16} className="mr-2" />Refresh
+                        </button>
+                    }
                 </div>
             </div>
             {/* filters */}
