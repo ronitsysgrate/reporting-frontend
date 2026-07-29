@@ -6,6 +6,7 @@ import { Headers } from '@/services/commonAPI';
 import { fetchSummaryReportAPI } from '@/services/reportsAPI';
 import server_url from '@/services/serverURL';
 import { formatDate, formatDateTime, formatDuration } from '@/utils/dateFormat';
+import { isDateRangeValid } from '@/utils/isDateRangeValid';
 import { useDateRange } from '@/utils/useDaterange';
 import { Clock, Download, Filter, User, Users } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react'
@@ -208,6 +209,8 @@ const Page = () => {
     };
 
     const handleDownload = (type: 'excel' | 'csv' = 'excel') => {
+        if (!isDateRangeValid(startDate, endDate)) return;
+
         setPendingDownloadType(type);
         setShowConfirmModal(true);
     };
@@ -558,6 +561,7 @@ const Page = () => {
                             </button>
                             <button
                                 onClick={confirmAndDownload}
+                                disabled={pagination.total <= 0}
                                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition"
                             >
                                 Download Now

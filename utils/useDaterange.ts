@@ -8,7 +8,7 @@ interface DateRange {
 export const useDateRange = (): DateRange => {
     const today = new Date();
     const pastDate = new Date(today);
-    pastDate.setDate(today.getDate() - 28);
+    pastDate.setDate(today.getDate() - 31);
 
     const formatDate = (date: Date): string => {
         return date.toISOString().split('T')[0];

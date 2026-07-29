@@ -3,9 +3,10 @@
 import MultiSelectDropdown from '@/components/MultiSelectDropdown';
 import ReportHeader from '@/components/ReportHeader'
 import { Headers } from '@/services/commonAPI';
-import { fetchAgentLoginCountAPI, fetchAgentLoginReportAPI } from '@/services/reportsAPI';
+import { fetchAgentLoginReportAPI } from '@/services/reportsAPI';
 import server_url from '@/services/serverURL';
 import { formatDate, formatDateTime, formatDuration } from '@/utils/dateFormat';
+import { isDateRangeValid } from '@/utils/isDateRangeValid';
 import { useDateRange } from '@/utils/useDaterange';
 import { Clock, Download, Filter, User, Users } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react'
@@ -37,7 +38,7 @@ interface AgentLoginReport {
 const Page = () => {
 
     const { today, pastDate } = useDateRange();
-    const [startDate, setStartDate] = useState<string>(today || '2025-07-01');
+    const [startDate, setStartDate] = useState<string>(pastDate || '2025-07-01');
     const [endDate, setEndDate] = useState<string>(today || '2025-07-30');
     const [data, setData] = useState<AgentLoginReport[]>([]);
     const [allAgents, setAllAgents] = useState<string[]>([]);
@@ -49,8 +50,6 @@ const Page = () => {
     const [isExporting, setIsExporting] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [pendingDownloadType, setPendingDownloadType] = useState<'excel' | 'csv' | null>(null);
-    const [loginRecordCount, setLoginRecordCount] = useState<number | null>(null);
-    const [isFetchingCount, setIsFetchingCount] = useState(false);
 
     const [pagination, setPagination] = useState<Pagination>({
         total: 0,
@@ -190,7 +189,7 @@ const Page = () => {
 
         try {
             const params = new URLSearchParams();
-            params.append('from', `${endDate}T00:00:00Z`);
+            params.append('from', `${startDate}T00:00:00Z`);
             params.append('to', `${endDate}T23:59:59Z`);
             params.append('format', selectedFormat);
             params.append('type', pendingDownloadType);
@@ -266,40 +265,6 @@ const Page = () => {
         }
     };
 
-    const fetchLoginRecordCount = async (downloadType: 'excel' | 'csv' = 'excel') => {
-        if (!token) return;
-
-        setIsFetchingCount(true);
-        setShowConfirmModal(true);
-        setLoginRecordCount(null);
-
-        try {
-            const params = new URLSearchParams();
-            params.append('to', endDate);
-
-            selectedAgents.forEach(agent => {
-                if (agent.trim()) params.append('agents', agent.trim());
-            });
-
-            const result = await fetchAgentLoginCountAPI(params.toString(), { authorization: `Bearer ${token}` });
-
-            if (result.success && result.data?.totalRecords !== undefined) {
-                setLoginRecordCount(result.data.totalRecords);
-            } else {
-                setLoginRecordCount(0);
-                toast.error('Could not fetch record count');
-            }
-        } catch (err) {
-            console.error(err);
-            toast.error('Error fetching record count');
-            setLoginRecordCount(0);
-        } finally {
-            setIsFetchingCount(false);
-        }
-
-        setPendingDownloadType(downloadType);
-    };
-
     useEffect(() => {
         const storedToken = sessionStorage.getItem('tk');
         if (storedToken) {
@@ -313,6 +278,18 @@ const Page = () => {
         }
     }, [token, queryParams]);
 
+    const handleDownloadClick = (type: 'excel' | 'csv') => {
+        if (!isDateRangeValid(startDate, endDate)) return;
+
+        if (pagination.total === 0) {
+            toast.error('No records available to download');
+            return;
+        }
+
+        setPendingDownloadType(type);
+        setShowConfirmModal(true);
+    };
+
     return (
         <>
             <ReportHeader
@@ -325,8 +302,9 @@ const Page = () => {
                 fetchReports={fetchLoginLogoutReports}
                 refreshReports={handleRefresh}
                 setVisibleColumns={setVisibleColumns}
-                onExcelDownload={fetchLoginRecordCount}
-                onCSVDownload={() => fetchLoginRecordCount('csv')}            >
+                onExcelDownload={() => handleDownloadClick('excel')}
+                onCSVDownload={() => handleDownloadClick('csv')}
+            >
                 <div className="flex space-x-4">
                     <MultiSelectDropdown
                         options={allAgents}
@@ -588,23 +566,18 @@ const Page = () => {
                             Confirm Download
                         </h3>
 
-                        {isFetchingCount ? (
-                            <p className="text-gray-600 mb-6">Fetching record count...</p>
-                        ) : (
-                            <p className="text-gray-600 mb-6">
-                                Proceed to download <strong>{loginRecordCount?.toLocaleString() ?? '—'}</strong> records
-                                for <strong>{formatDate(endDate)}</strong>?
-                            </p>
-                        )}
+                        <p className="text-gray-600 mb-6">
+                            You are about to download <strong>{pagination.total}</strong> records
+                            from <strong>{formatDate(startDate)}</strong> to <strong>{formatDate(endDate)}</strong>
+                            as <strong>{pendingDownloadType?.toUpperCase()}</strong> file.
+                        </p>
 
                         <div className="flex justify-end gap-3">
                             <button
                                 onClick={() => {
                                     setShowConfirmModal(false);
                                     setPendingDownloadType(null);
-                                    setLoginRecordCount(null);
                                 }}
-                                disabled={isFetchingCount}
                                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition disabled:opacity-50"
                             >
                                 Cancel
@@ -612,10 +585,10 @@ const Page = () => {
 
                             <button
                                 onClick={confirmAndDownload}
-                                disabled={isFetchingCount || loginRecordCount === null || loginRecordCount === 0}
+                                disabled={pagination.total === 0}
                                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition disabled:opacity-50"
                             >
-                                {isFetchingCount ? 'Loading...' : 'Download Now'}
+                                Download Now
                             </button>
                         </div>
                     </div>

@@ -329,8 +329,8 @@ const Page = () => {
 
             // Note: your count API doesn't seem to support statuses/substatuses yet
             // If backend supports it → add them here too
-            // selectedStatuses.forEach(s => s.trim() && params.append('statuses', s.trim()));
-            // selectedSubtatuses.forEach(s => s.trim() && params.append('sub_status', s.trim()));
+            selectedStatuses.forEach(s => s.trim() && params.append('statuses', s.trim()));
+            selectedSubtatuses.forEach(s => s.trim() && params.append('sub_status', s.trim()));
 
             const headers: Headers = { authorization: `Bearer ${token}` };
 
