@@ -9,7 +9,7 @@ import { formatDate, formatDuration } from '@/utils/dateFormat';
 import { isDateRangeValid } from '@/utils/isDateRangeValid';
 import { useDateRange } from '@/utils/useDaterange';
 import { Clock, Download, Filter, User, Users } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast';
 
 interface Pagination {
@@ -67,6 +67,7 @@ const Page = () => {
     const [isExporting, setIsExporting] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [pendingDownloadType, setPendingDownloadType] = useState<'excel' | 'csv' | null>(null);
+    const requestIdRef = useRef(0);
 
     const [pagination, setPagination] = useState<Pagination>({
         total: 0,
@@ -127,40 +128,49 @@ const Page = () => {
 
     const fetchAuxReports = async () => {
         setIsLoading(true);
+        const requestId = ++requestIdRef.current;
 
         try {
             const headers: Headers = { authorization: `Bearer ${token}` };
             const result = await fetchSummaryReportAPI(queryParams, headers);
+
+            if (requestId !== requestIdRef.current) return;
+
             if (result.success) {
                 const { records, agents, page, limit, total } = result.data;
                 setData(records);
                 setAllAgents(agents);
-                setPagination({
+                setPagination((prev) => ({
+                    ...prev,
                     total: total,
                     limit: limit,
                     currentPage: page,
                     pages: Math.ceil(total / limit),
-                });
+                }));
             } else {
                 setData([]);
                 setAllAgents([]);
-                setPagination({
+                setPagination((prev) => ({
+                    ...prev,
                     total: 0,
-                    limit: 10,
                     currentPage: 1,
                     pages: 1,
-                });
+                }));
             }
 
         } catch (error) {
+            if (requestId !== requestIdRef.current) return;
             console.log(error);
         } finally {
-            setIsLoading(false);
+            if (requestId === requestIdRef.current) {
+                setIsLoading(false);
+            }
         }
     };
 
     const handleRefresh = async () => {
         setIsLoading(true);
+        const requestId = ++requestIdRef.current;
 
         try {
             const headers: Headers = { authorization: `Bearer ${token}` };
@@ -180,6 +190,9 @@ const Page = () => {
             });
 
             const result = await fetchSummaryReportAPI(params.toString(), headers);
+
+            if (requestId !== requestIdRef.current) return;
+
             if (result.success) {
                 const { records, agents, page, limit, total } = result.data;
                 setData(records);
@@ -202,9 +215,12 @@ const Page = () => {
             }
 
         } catch (error) {
+            if (requestId !== requestIdRef.current) return;
             console.log(error);
         } finally {
-            setIsLoading(false);
+            if (requestId === requestIdRef.current) {
+                setIsLoading(false);
+            }
         }
     };
 
@@ -513,7 +529,7 @@ const Page = () => {
                                     onClick={(e) => {
                                         setPagination((prev) => ({ ...prev, currentPage: prev.currentPage - 1 }));
                                     }}
-                                    disabled={pagination.currentPage === 1}
+                                    disabled={pagination.currentPage === 1 || isLoading}
                                     aria-label="Previous Page"
                                 >
                                     Previous
@@ -526,7 +542,7 @@ const Page = () => {
                                     onClick={(e) => {
                                         setPagination((prev) => ({ ...prev, currentPage: prev.currentPage + 1 }));
                                     }}
-                                    disabled={pagination.currentPage * pagination.limit >= pagination.total}
+                                    disabled={pagination.currentPage * pagination.limit >= pagination.total || isLoading}
                                     aria-label="Next Page"
                                 >
                                     Next
