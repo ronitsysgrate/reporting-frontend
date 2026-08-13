@@ -5,7 +5,7 @@ import ReportHeader from '@/components/ReportHeader'
 import { Headers } from '@/services/commonAPI';
 import { fetchSummaryReportAPI } from '@/services/reportsAPI';
 import server_url from '@/services/serverURL';
-import { formatDate, formatDateTime, formatDuration } from '@/utils/dateFormat';
+import { formatDate, formatDuration } from '@/utils/dateFormat';
 import { isDateRangeValid } from '@/utils/isDateRangeValid';
 import { useDateRange } from '@/utils/useDaterange';
 import { Clock, Download, Filter, User, Users } from 'lucide-react';
